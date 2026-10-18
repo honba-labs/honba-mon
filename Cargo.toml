@@ -1,0 +1,20 @@
+[package]
+name = "honba-mon"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "AGPL-3.0"
+description = "Deterministic synchronous risk gate: SEBI OTR circuit breaker, price bands, and kill-switch"
+
+[dependencies]
+honba-core = { path = "../honba-core" }
+rust_decimal = { version = "1", features = ["serde-with-str"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+tracing = "0.1"
+schemars = { version = "0.8", features = ["derive", "chrono", "uuid1", "rust_decimal"] }
+
+[dev-dependencies]
+serde_json = "1"
