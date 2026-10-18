@@ -1,5 +1,6 @@
 //! Refusal types indicating why an order or decision was rejected by the risk gate.
 
+use chrono::{DateTime, Utc};
 use honba_core::{Price, PriceBand, Quantity};
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
@@ -22,6 +23,16 @@ pub enum RiskRefusal {
         algo_id: String,
         /// Reason for halting
         reason: String,
+    },
+
+    /// Market-wide index circuit breaker triggered (10%, 15%, 20%).
+    MarketCircuitHalt {
+        /// Index symbol (e.g. "NIFTY 50", "SENSEX")
+        index_symbol: String,
+        /// Circuit percentage stage (10, 15, or 20)
+        stage_pct: u8,
+        /// Expected cooling-off resume time if applicable
+        resume_at: Option<DateTime<Utc>>,
     },
 
     /// SEBI Order-to-Trade Ratio limit exceeded.
@@ -92,11 +103,31 @@ pub enum RiskRefusal {
 impl fmt::Display for RiskRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::GlobalHalted { reason } => write!(f, "Platform trading globally halted: {reason}"),
+            Self::GlobalHalted { reason } => {
+                write!(f, "Platform trading globally halted: {reason}")
+            }
             Self::AlgoHalted { algo_id, reason } => {
                 write!(f, "Algorithm '{algo_id}' is halted: {reason}")
             }
-            Self::OtrBreached { algo_id, current_otr, max_otr } => write!(
+            Self::MarketCircuitHalt {
+                index_symbol,
+                stage_pct,
+                resume_at,
+            } => match resume_at {
+                Some(res) => write!(
+                    f,
+                    "Market-wide circuit halt on {index_symbol} ({stage_pct}%); resumes at {res}"
+                ),
+                None => write!(
+                    f,
+                    "Market-wide circuit halt on {index_symbol} ({stage_pct}%); market closed for remainder of day"
+                ),
+            },
+            Self::OtrBreached {
+                algo_id,
+                current_otr,
+                max_otr,
+            } => write!(
                 f,
                 "SEBI OTR threshold breached for algo '{algo_id}': current {current_otr} > limit {max_otr}"
             ),
@@ -110,22 +141,31 @@ impl fmt::Display for RiskRefusal {
                 "Order notional {} INR exceeds ceiling {} INR",
                 requested, limit
             ),
-            Self::MaxQuantityExceeded { requested, limit } => write!(
-                f,
-                "Order quantity {} exceeds ceiling {}",
-                requested, limit
-            ),
-            Self::OrderRateExceeded { count, limit, window_ms } => write!(
+            Self::MaxQuantityExceeded { requested, limit } => {
+                write!(f, "Order quantity {} exceeds ceiling {}", requested, limit)
+            }
+            Self::OrderRateExceeded {
+                count,
+                limit,
+                window_ms,
+            } => write!(
                 f,
                 "Rate limit exceeded: {count} orders in {window_ms}ms (max {limit})"
             ),
-            Self::DailyLossExceeded { current_loss, limit } => write!(
+            Self::DailyLossExceeded {
+                current_loss,
+                limit,
+            } => write!(
                 f,
                 "Daily loss limit reached: -{} INR exceeds max loss -{} INR",
                 current_loss, limit
             ),
-            Self::ReduceOnlyViolation { details } => write!(f, "Reduce-only mode violation: {details}"),
+            Self::ReduceOnlyViolation { details } => {
+                write!(f, "Reduce-only mode violation: {details}")
+            }
             Self::InvalidOrder { error } => write!(f, "Invalid order: {error}"),
         }
     }
 }
+
+impl std::error::Error for RiskRefusal {}

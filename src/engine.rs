@@ -12,13 +12,15 @@ use honba_core::{Decision, FillReport, InstrumentId, OrderRequest, Price, PriceB
 use crate::limits::RiskLimits;
 use crate::otr::{OtrConfig, OtrTracker};
 use crate::refusal::RiskRefusal;
-use crate::state::{AlgoState, GlobalState};
+use crate::state::{AlgoState, GlobalState, MarketCircuitHalt};
 
 /// Synchronous, deterministic risk engine.
 #[derive(Debug, Clone)]
 pub struct RiskEngine {
     /// Global trading state (Active, ReduceOnly, Halted)
     pub global_state: GlobalState,
+    /// Market-wide index circuit breaker status (10%, 15%, 20%)
+    pub market_circuit: Option<MarketCircuitHalt>,
     /// Per-algo ID operational states
     pub algo_states: HashMap<String, AlgoState>,
     /// Per-algo OTR trackers
@@ -39,6 +41,7 @@ impl Default for RiskEngine {
     fn default() -> Self {
         Self {
             global_state: GlobalState::Active,
+            market_circuit: None,
             algo_states: HashMap::new(),
             algo_trackers: HashMap::new(),
             otr_config: OtrConfig::default(),
@@ -55,6 +58,7 @@ impl RiskEngine {
     pub fn new(limits: RiskLimits, otr_config: OtrConfig) -> Self {
         Self {
             global_state: GlobalState::Active,
+            market_circuit: None,
             algo_states: HashMap::new(),
             algo_trackers: HashMap::new(),
             otr_config,
@@ -84,6 +88,34 @@ impl RiskEngine {
     /// Set platform to reduce-only mode.
     pub fn set_reduce_only(&mut self) {
         self.global_state = GlobalState::ReduceOnly;
+    }
+
+    /// Trigger market-wide index circuit halt (10%, 15%, 20%).
+    pub fn trigger_market_circuit(
+        &mut self,
+        index_symbol: impl Into<String>,
+        stage_pct: u8,
+        resume_at: Option<DateTime<Utc>>,
+        halted_at: DateTime<Utc>,
+    ) {
+        let sym = index_symbol.into();
+        tracing::warn!(
+            "MARKET-WIDE INDEX CIRCUIT BREAKER TRIP: {} stage {}%",
+            sym,
+            stage_pct
+        );
+        self.market_circuit = Some(MarketCircuitHalt {
+            index_symbol: sym,
+            stage_pct,
+            halted_at,
+            resume_at,
+        });
+    }
+
+    /// Clear market-wide index circuit breaker.
+    pub fn clear_market_circuit(&mut self) {
+        tracing::info!("Clearing market-wide index circuit breaker");
+        self.market_circuit = None;
     }
 
     /// Halt an individual algorithm by ID (SEBI circular compliance).
@@ -184,6 +216,13 @@ impl RiskEngine {
         order: &OrderRequest,
         now: DateTime<Utc>,
     ) -> Result<(), RiskRefusal> {
+        // Enforce structural order validation per SEBI & market rules
+        if let Err(e) = order.validate() {
+            return Err(RiskRefusal::InvalidOrder {
+                error: e.to_string(),
+            });
+        }
+
         let price_limit = order.order_type.limit_price();
         self.evaluate_core(
             &order.algo_id,
@@ -208,6 +247,27 @@ impl RiskEngine {
             return Err(RiskRefusal::GlobalHalted {
                 reason: reason.clone(),
             });
+        }
+
+        // 1.5 Market-Wide Index Circuit Breaker Check
+        if let Some(circuit) = &self.market_circuit {
+            match circuit.resume_at {
+                Some(resume) if now < resume => {
+                    return Err(RiskRefusal::MarketCircuitHalt {
+                        index_symbol: circuit.index_symbol.clone(),
+                        stage_pct: circuit.stage_pct,
+                        resume_at: Some(resume),
+                    });
+                }
+                None => {
+                    return Err(RiskRefusal::MarketCircuitHalt {
+                        index_symbol: circuit.index_symbol.clone(),
+                        stage_pct: circuit.stage_pct,
+                        resume_at: None,
+                    });
+                }
+                _ => {} // cooling-off period has passed
+            }
         }
 
         // 2. Per-Algo ID Halt Check

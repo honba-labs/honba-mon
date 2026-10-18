@@ -112,6 +112,71 @@ fn test_circuit_limits_and_price_bands() {
 }
 
 #[test]
+fn test_market_circuit_breaker() {
+    let mut engine = RiskEngine::default();
+    let now = Utc::now();
+    let req = OrderRequest::new(
+        InstrumentId::new(Exchange::Nse, "INFY"),
+        OrderSide::Buy,
+        OrderType::Market,
+        Quantity::from_u64(10),
+        "algo-index",
+    );
+
+    assert!(engine.check_order(&req, now).is_ok());
+
+    // 10% index circuit tripped with 45 min cooling off
+    let resume_at = now + chrono::Duration::minutes(45);
+    engine.trigger_market_circuit("NIFTY 50", 10, Some(resume_at), now);
+
+    // Order during halt is rejected
+    let during_halt = now + chrono::Duration::minutes(15);
+    let res = engine.check_order(&req, during_halt);
+    assert!(matches!(
+        res,
+        Err(RiskRefusal::MarketCircuitHalt { stage_pct: 10, .. })
+    ));
+
+    // After cooling-off expires
+    let after_resume = now + chrono::Duration::minutes(46);
+    assert!(engine.check_order(&req, after_resume).is_ok());
+}
+
+#[test]
+fn test_sebi_algo_id_validation() {
+    let mut engine = RiskEngine::default();
+    let now = Utc::now();
+
+    // Empty algo_id violates SEBI Retail Algo circular
+    let req_empty_algo = OrderRequest {
+        client_order_id: uuid::Uuid::new_v4(),
+        instrument: InstrumentId::new(Exchange::Nse, "TCS"),
+        side: OrderSide::Buy,
+        order_type: OrderType::Market,
+        quantity: Quantity::from_u64(10),
+        tif: TimeInForce::Day,
+        algo_id: "".to_string(),
+        tag: None,
+    };
+    let res = engine.check_order(&req_empty_algo, now);
+    assert!(matches!(res, Err(RiskRefusal::InvalidOrder { .. })));
+
+    // Zero quantity violates order rules
+    let req_zero_qty = OrderRequest {
+        client_order_id: uuid::Uuid::new_v4(),
+        instrument: InstrumentId::new(Exchange::Nse, "TCS"),
+        side: OrderSide::Buy,
+        order_type: OrderType::Market,
+        quantity: Quantity::ZERO,
+        tif: TimeInForce::Day,
+        algo_id: "algo-valid".to_string(),
+        tag: None,
+    };
+    let res2 = engine.check_order(&req_zero_qty, now);
+    assert!(matches!(res2, Err(RiskRefusal::InvalidOrder { .. })));
+}
+
+#[test]
 fn test_sebi_otr_circuit_breaker() {
     let limits = RiskLimits::default();
     let otr_config = OtrConfig {

@@ -64,3 +64,16 @@ impl AlgoState {
         matches!(self, Self::Halted { .. })
     }
 }
+
+/// Market-wide index circuit breaker state (10%, 15%, 20%).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MarketCircuitHalt {
+    /// Index triggering the circuit (e.g., "NIFTY 50", "SENSEX")
+    pub index_symbol: String,
+    /// Circuit stage percentage (10, 15, or 20)
+    pub stage_pct: u8,
+    /// Timestamp when circuit tripped
+    pub halted_at: DateTime<Utc>,
+    /// Cooling-off resume timestamp (None for market close remainder)
+    pub resume_at: Option<DateTime<Utc>>,
+}
