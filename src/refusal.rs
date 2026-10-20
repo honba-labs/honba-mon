@@ -169,3 +169,22 @@ impl fmt::Display for RiskRefusal {
 }
 
 impl std::error::Error for RiskRefusal {}
+
+impl RiskRefusal {
+    /// Return the regulatory/risk rule name identifying this refusal.
+    pub fn rule(&self) -> &'static str {
+        match self {
+            Self::GlobalHalted { .. } => "global_halt",
+            Self::AlgoHalted { .. } => "algo_halt",
+            Self::MarketCircuitHalt { .. } => "market_circuit_halt",
+            Self::OtrBreached { .. } => "sebi_otr_breach",
+            Self::PriceBandViolation { .. } => "price_band_violation",
+            Self::MaxNotionalExceeded { .. } => "max_notional_exceeded",
+            Self::MaxQuantityExceeded { .. } => "max_quantity_exceeded",
+            Self::OrderRateExceeded { .. } => "order_rate_exceeded",
+            Self::DailyLossExceeded { .. } => "daily_loss_exceeded",
+            Self::ReduceOnlyViolation { .. } => "reduce_only_violation",
+            Self::InvalidOrder { .. } => "invalid_order",
+        }
+    }
+}
