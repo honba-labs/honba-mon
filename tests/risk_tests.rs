@@ -157,6 +157,8 @@ fn test_sebi_algo_id_validation() {
         tif: TimeInForce::Day,
         algo_id: "".to_string(),
         tag: None,
+        client_id: None,
+        correlation_id: None,
     };
     let res = engine.check_order(&req_empty_algo, now);
     assert!(matches!(res, Err(RiskRefusal::InvalidOrder { .. })));
@@ -171,6 +173,8 @@ fn test_sebi_algo_id_validation() {
         tif: TimeInForce::Day,
         algo_id: "algo-valid".to_string(),
         tag: None,
+        client_id: None,
+        correlation_id: None,
     };
     let res2 = engine.check_order(&req_zero_qty, now);
     assert!(matches!(res2, Err(RiskRefusal::InvalidOrder { .. })));
