@@ -553,6 +553,11 @@ impl RiskEngine {
         // 7. Maximum Daily Loss Check
         if let Some(max_loss) = self.limits.max_daily_loss {
             if self.daily_loss >= max_loss {
+                // Trip global emergency kill-switch per SEBI requirements
+                self.halt_global(
+                    format!("Daily loss limit breached: {} INR >= {} INR limit", self.daily_loss, max_loss),
+                    now,
+                );
                 let r = RiskRefusal::DailyLossExceeded {
                     current_loss: self.daily_loss,
                     limit: max_loss,
