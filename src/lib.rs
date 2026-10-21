@@ -10,6 +10,7 @@
 //! - Maximum notional, position size, and event-time rate limiting
 //! - Strict compliance gate between AI/LLM decisions and broker execution
 
+pub mod algo_registry;
 pub mod engine;
 pub mod error;
 pub mod limits;
@@ -17,6 +18,7 @@ pub mod otr;
 pub mod refusal;
 pub mod state;
 
+pub use algo_registry::AlgoIdRegistry;
 pub use engine::RiskEngine;
 pub use error::RiskError;
 pub use limits::{OrderRateLimit, RiskLimits};

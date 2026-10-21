@@ -6,6 +6,7 @@ use rust_decimal::Decimal;
 #[test]
 fn test_global_kill_switch() {
     let mut engine = RiskEngine::default();
+    engine.register_algo("algo-1");
     let now = Utc::now();
     let req = OrderRequest::new(
         InstrumentId::new(Exchange::Nse, "INFY"),
@@ -33,6 +34,8 @@ fn test_global_kill_switch() {
 #[test]
 fn test_per_algo_halt() {
     let mut engine = RiskEngine::default();
+    engine.register_algo("erratic-algo");
+    engine.register_algo("good-algo");
     let now = Utc::now();
 
     let req_bad = OrderRequest::new(
@@ -63,6 +66,7 @@ fn test_per_algo_halt() {
 #[test]
 fn test_circuit_limits_and_price_bands() {
     let mut engine = RiskEngine::default();
+    engine.register_algo("algo-1");
     let now = Utc::now();
     let inst = InstrumentId::new(Exchange::Nse, "RELIANCE");
 
@@ -114,6 +118,7 @@ fn test_circuit_limits_and_price_bands() {
 #[test]
 fn test_market_circuit_breaker() {
     let mut engine = RiskEngine::default();
+    engine.register_algo("algo-index");
     let now = Utc::now();
     let req = OrderRequest::new(
         InstrumentId::new(Exchange::Nse, "INFY"),
@@ -181,14 +186,38 @@ fn test_sebi_algo_id_validation() {
 }
 
 #[test]
+fn test_sebi_algo_not_registered() {
+    let mut engine = RiskEngine::default();
+    let now = Utc::now();
+
+    // Unregistered algo_id should be rejected
+    let req = OrderRequest::new(
+        InstrumentId::new(Exchange::Nse, "TCS"),
+        OrderSide::Buy,
+        OrderType::Market,
+        Quantity::from_u64(10),
+        "unregistered-algo",
+    );
+    let res = engine.check_order(&req, now);
+    assert!(matches!(
+        res,
+        Err(RiskRefusal::AlgoNotRegistered { .. })
+    ));
+}
+
+#[test]
 fn test_sebi_otr_circuit_breaker() {
     let limits = RiskLimits::default();
     let otr_config = OtrConfig {
         max_otr: Decimal::from(10),       // Max 10:1 ratio
         min_orders_before_enforcement: 5, // Enforce after 5 orders
+        warning_threshold: Decimal::from(40),
+        window_1min_ms: 60_000,
+        window_5min_ms: 300_000,
     };
 
     let mut engine = RiskEngine::new(limits, otr_config);
+    engine.register_algo("high-frequency-spammer");
     let now = Utc::now();
     let inst = InstrumentId::new(Exchange::Nse, "WIPRO");
 
@@ -205,12 +234,11 @@ fn test_sebi_otr_circuit_breaker() {
         assert!(engine.check_order(&req, now).is_ok());
     }
 
-    // Now orders = 5, trades = 0, so OTR = 5 / 1 = 5.
-    // Place more orders to cross 10:1
+    // Place more orders to cross 10:1 in 1-min window
     for _ in 0..5 {
         assert!(engine.check_order(&req, now).is_ok());
     }
-    // Now orders = 10, trades = 0 -> ratio = 10. Next order will reach ratio 11 > 10
+    // Now 10 orders in 1-min window, no trades -> ratio = 10/1 = 10. Next order will reach 11 > 10
     assert!(engine.check_order(&req, now).is_ok());
 
     // Next order should breach and trigger automatic halt
@@ -226,6 +254,8 @@ fn test_sebi_otr_circuit_breaker() {
 
 #[test]
 fn test_order_rate_limiter() {
+    let mut engine = RiskEngine::default();
+    engine.register_algo("algo-rate");
     let limits = RiskLimits {
         order_rate_limit: Some(OrderRateLimit {
             max_orders: 3,
@@ -233,7 +263,10 @@ fn test_order_rate_limiter() {
         }),
         ..Default::default()
     };
+    // Need to recreate engine with limits - but we already registered algo
+    // Let's just create a new engine
     let mut engine = RiskEngine::new(limits, OtrConfig::default());
+    engine.register_algo("algo-rate");
     let now = Utc::now();
     let req = OrderRequest::new(
         InstrumentId::new(Exchange::Nse, "SBIN"),
@@ -254,4 +287,95 @@ fn test_order_rate_limiter() {
     // After 1001ms, rate limit window has slid forward
     let future = now + chrono::Duration::milliseconds(1001);
     assert!(engine.check_order(&req, future).is_ok());
+}
+
+#[test]
+fn test_otn_sliding_window() {
+    let mut engine = RiskEngine::default();
+    engine.register_algo("spammer");
+    let now = Utc::now();
+    let inst = InstrumentId::new(Exchange::Nse, "WIPRO");
+
+    let req = OrderRequest::new(
+        inst.clone(),
+        OrderSide::Buy,
+        OrderType::Market,
+        Quantity::from_u64(1),
+        "spammer",
+    );
+
+    // Place orders at t=0
+    for _ in 0..10 {
+        assert!(engine.check_order(&req, now).is_ok());
+    }
+
+    // Advance time past 1 minute - events should fall out of window
+    let later = now + chrono::Duration::seconds(61);
+
+    // Should be able to place more orders since old ones expired from 1-min window
+    for _ in 0..5 {
+        assert!(engine.check_order(&req, later).is_ok());
+    }
+}
+
+#[test]
+fn test_algo_registry_suspend() {
+    let mut engine = RiskEngine::default();
+    engine.register_algo("suspended-algo");
+    engine.suspend_algo("suspended-algo", "SEBI violation");
+    let now = Utc::now();
+
+    let req = OrderRequest::new(
+        InstrumentId::new(Exchange::Nse, "TCS"),
+        OrderSide::Buy,
+        OrderType::Market,
+        Quantity::from_u64(10),
+        "suspended-algo",
+    );
+
+    let res = engine.check_order(&req, now);
+    assert!(matches!(
+        res,
+        Err(RiskRefusal::AlgoNotRegistered { .. })
+    ));
+
+    // Reactivate and verify
+    engine.reactivate_algo("suspended-algo");
+    assert!(engine.check_order(&req, now).is_ok());
+}
+
+#[test]
+fn test_validate_price_band() {
+    let mut engine = RiskEngine::default();
+    engine.register_algo("algo-1");
+    let now = Utc::now();
+    let inst = InstrumentId::new(Exchange::Nse, "RELIANCE");
+
+    let band = PriceBand::new(
+        Price::from_rupees("2000.00").unwrap(),
+        Price::from_rupees("3000.00").unwrap(),
+        Price::from_rupees("2500.00").unwrap(),
+    );
+    engine.set_price_band(inst.clone(), band);
+
+    // Price within band
+    assert!(engine
+        .validate_price_band(&inst, Price::from_rupees("2550.00").unwrap())
+        .is_ok());
+
+    // Price above band
+    assert!(matches!(
+        engine.validate_price_band(&inst, Price::from_rupees("3050.00").unwrap()),
+        Err(RiskRefusal::PriceBandViolation { .. })
+    ));
+
+    // Price below band
+    assert!(matches!(
+        engine.validate_price_band(&inst, Price::from_rupees("1950.00").unwrap()),
+        Err(RiskRefusal::PriceBandViolation { .. })
+    ));
+
+    // Instrument with no band - always valid
+    let unknown = InstrumentId::new(Exchange::Nse, "UNKNOWN");
+    assert!(engine.validate_price_band(&unknown, Price::from_rupees("99999.00").unwrap()).is_ok());
 }

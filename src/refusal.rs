@@ -25,6 +25,14 @@ pub enum RiskRefusal {
         reason: String,
     },
 
+    /// Algo ID is not registered with the broker/exchange (SEBI Retail Algo Circular).
+    AlgoNotRegistered {
+        /// Unregistered algo ID
+        algo_id: String,
+        /// Reason for rejection
+        reason: String,
+    },
+
     /// Market-wide index circuit breaker triggered (10%, 15%, 20%).
     MarketCircuitHalt {
         /// Index symbol (e.g. "NIFTY 50", "SENSEX")
@@ -109,6 +117,9 @@ impl fmt::Display for RiskRefusal {
             Self::AlgoHalted { algo_id, reason } => {
                 write!(f, "Algorithm '{algo_id}' is halted: {reason}")
             }
+            Self::AlgoNotRegistered { algo_id, reason } => {
+                write!(f, "Algo ID '{algo_id}' not registered: {reason}")
+            }
             Self::MarketCircuitHalt {
                 index_symbol,
                 stage_pct,
@@ -176,6 +187,7 @@ impl RiskRefusal {
         match self {
             Self::GlobalHalted { .. } => "global_halt",
             Self::AlgoHalted { .. } => "algo_halt",
+            Self::AlgoNotRegistered { .. } => "algo_not_registered",
             Self::MarketCircuitHalt { .. } => "market_circuit_halt",
             Self::OtrBreached { .. } => "sebi_otr_breach",
             Self::PriceBandViolation { .. } => "price_band_violation",

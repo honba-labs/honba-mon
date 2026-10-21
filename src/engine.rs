@@ -7,8 +7,9 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use std::collections::{HashMap, VecDeque};
 
-use honba_core::{Decision, FillReport, InstrumentId, OrderRequest, Price, PriceBand, Quantity};
+use honba_core::{Decision, Exchange, FillReport, InstrumentId, OrderRequest, Price, PriceBand, Quantity};
 
+use crate::algo_registry::AlgoIdRegistry;
 use crate::limits::RiskLimits;
 use crate::otr::{OtrConfig, OtrTracker};
 use crate::refusal::RiskRefusal;
@@ -27,6 +28,8 @@ pub struct RiskEngine {
     pub algo_trackers: HashMap<String, OtrTracker>,
     /// Per-scrip OTR trackers
     pub scrip_trackers: HashMap<InstrumentId, OtrTracker>,
+    /// SEBI Algo ID registry for registered/active algo validation.
+    pub algo_registry: AlgoIdRegistry,
     /// Refusal counters by rule name
     pub refusal_counts: HashMap<String, u64>,
     /// Cumulative daily notional turnover in INR per algo
@@ -53,6 +56,7 @@ impl Default for RiskEngine {
             algo_states: HashMap::new(),
             algo_trackers: HashMap::new(),
             scrip_trackers: HashMap::new(),
+            algo_registry: AlgoIdRegistry::new(),
             refusal_counts: HashMap::new(),
             cumulative_turnover: HashMap::new(),
             cumulative_pnl: HashMap::new(),
@@ -74,6 +78,7 @@ impl RiskEngine {
             algo_states: HashMap::new(),
             algo_trackers: HashMap::new(),
             scrip_trackers: HashMap::new(),
+            algo_registry: AlgoIdRegistry::new(),
             refusal_counts: HashMap::new(),
             cumulative_turnover: HashMap::new(),
             cumulative_pnl: HashMap::new(),
@@ -164,16 +169,66 @@ impl RiskEngine {
         self.price_bands.insert(instrument, band);
     }
 
+    /// Validate that a price is within the scrip's operational price band.
+    ///
+    /// Returns `Ok(())` if no band is set for the instrument, or if the price
+    /// is within the band. Returns `Err(RiskRefusal::PriceBandViolation)` otherwise.
+    pub fn validate_price_band(
+        &self,
+        instrument: &InstrumentId,
+        price: Price,
+    ) -> Result<(), RiskRefusal> {
+        if let Some(band) = self.price_bands.get(instrument) {
+            if !band.contains(price) {
+                return Err(RiskRefusal::PriceBandViolation {
+                    price,
+                    band: *band,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Register a new algo ID with the SEBI registry.
+    pub fn register_algo(&mut self, algo_id: impl Into<String>) {
+        self.algo_registry.register(algo_id);
+    }
+
+    /// Suspend a registered algo ID.
+    pub fn suspend_algo(&mut self, algo_id: &str, reason: impl Into<String>) {
+        self.algo_registry.suspend(algo_id, reason);
+    }
+
+    /// Reactivate a suspended algo ID.
+    pub fn reactivate_algo(&mut self, algo_id: &str) {
+        self.algo_registry.reactivate(algo_id);
+    }
+
+    /// Unregister an algo ID from the SEBI registry.
+    pub fn unregister_algo(&mut self, algo_id: &str) {
+        self.algo_registry.unregister(algo_id);
+    }
+
+    /// Check if an algo ID is registered and active.
+    pub fn is_algo_registered(&self, algo_id: &str) -> bool {
+        self.algo_registry
+            .is_registered_and_active(algo_id)
+            .is_ok()
+    }
+
     /// Record a trade fill to update OTR and trackers.
     pub fn record_fill(&mut self, fill: &FillReport) {
-        let tracker = self.algo_trackers.entry(fill.algo_id.clone()).or_default();
-        tracker.record_fill();
+        let tracker = self
+            .algo_trackers
+            .entry(fill.algo_id.clone())
+            .or_default();
+        tracker.record_fill(fill.timestamp);
 
         let scrip_tracker = self
             .scrip_trackers
             .entry(fill.instrument.clone())
             .or_default();
-        scrip_tracker.record_fill();
+        scrip_tracker.record_fill(fill.timestamp);
 
         let turnover = fill.price.0 * fill.quantity.0;
         *self
@@ -183,16 +238,21 @@ impl RiskEngine {
     }
 
     /// Record an order cancellation or modification.
-    pub fn record_cancellation(&mut self, algo_id: &str) {
+    pub fn record_cancellation(&mut self, algo_id: &str, ts: DateTime<Utc>) {
         let tracker = self.algo_trackers.entry(algo_id.to_string()).or_default();
-        tracker.record_order_mod_or_cancel();
+        tracker.record_order_mod_or_cancel(ts);
     }
 
     /// Record an order cancellation or modification with instrument.
-    pub fn record_cancellation_for_scrip(&mut self, algo_id: &str, instrument: &InstrumentId) {
-        self.record_cancellation(algo_id);
+    pub fn record_cancellation_for_scrip(
+        &mut self,
+        algo_id: &str,
+        instrument: &InstrumentId,
+        ts: DateTime<Utc>,
+    ) {
+        self.record_cancellation(algo_id, ts);
         let scrip_tracker = self.scrip_trackers.entry(instrument.clone()).or_default();
-        scrip_tracker.record_order_mod_or_cancel();
+        scrip_tracker.record_order_mod_or_cancel(ts);
     }
 
     /// Record realized loss to update daily drawdown.
@@ -271,30 +331,36 @@ impl RiskEngine {
         }
 
         match decision {
-            Decision::Buy {
+            Decision::PlaceOrder {
                 symbol,
-                exchange,
-                qty,
-                price_limit,
-                algo_id,
-                ..
-            }
-            | Decision::Sell {
-                symbol,
-                exchange,
+                side: _,
                 qty,
                 price_limit,
                 algo_id,
                 ..
             } => {
-                let inst = InstrumentId::new(*exchange, symbol.clone());
+                let inst = InstrumentId::new(Exchange::Nse, symbol.clone());
                 self.evaluate_core(algo_id, &inst, *qty, *price_limit, now)
             }
             Decision::Hold { .. } => Ok(()),
             Decision::CancelAll { algo_id, .. } => {
                 if let Some(id) = algo_id {
-                    self.record_cancellation(id);
+                    self.record_cancellation(id, now);
                 }
+                Ok(())
+            }
+            Decision::CancelOrder { instrument, algo_id, .. } => {
+                if let Some(id) = algo_id {
+                    self.record_cancellation(id, now);
+                }
+                // Cancel order doesn't add risk, just record
+                let _ = instrument;
+                Ok(())
+            }
+            Decision::ModifyOrder { instrument, algo_id, .. } => {
+                // Modifications are recorded as order operations
+                let _ = instrument;
+                self.record_cancellation(&algo_id, now);
                 Ok(())
             }
         }
@@ -307,9 +373,16 @@ impl RiskEngine {
         now: DateTime<Utc>,
     ) -> Result<(), RiskRefusal> {
         // Enforce structural order validation per SEBI & market rules
-        if let Err(e) = order.validate() {
+        if order.algo_id.trim().is_empty() {
             let refusal = RiskRefusal::InvalidOrder {
-                error: e.to_string(),
+                error: "algo_id cannot be empty".to_string(),
+            };
+            self.record_refusal(&refusal);
+            return Err(refusal);
+        }
+        if !order.quantity.is_positive() {
+            let refusal = RiskRefusal::InvalidOrder {
+                error: "quantity must be strictly positive".to_string(),
             };
             self.record_refusal(&refusal);
             return Err(refusal);
@@ -378,23 +451,50 @@ impl RiskEngine {
             return Err(r);
         }
 
+        // 2.5 SEBI Algo ID Registry Check
+        if let Err(reason) = self.algo_registry.is_registered_and_active(algo_id) {
+            let r = RiskRefusal::AlgoNotRegistered {
+                algo_id: algo_id.to_string(),
+                reason,
+            };
+            self.record_refusal(&r);
+            return Err(r);
+        }
+
         // 3. SEBI Order-to-Trade Ratio Check
-        let tracker = self.algo_trackers.entry(algo_id.to_string()).or_default();
-        if tracker.is_breached(&self.otr_config) {
-            let current_otr = tracker.current_otr();
+        let tracker = self
+            .algo_trackers
+            .entry(algo_id.to_string())
+            .or_default();
+
+        // Check sliding-window OTR over 1-minute window BEFORE recording this order
+        let window_otr = tracker.window_otr_1min(now);
+        if tracker.total_order_operations() >= self.otr_config.min_orders_before_enforcement
+            && window_otr > self.otr_config.max_otr
+        {
             // Automatically trip circuit breaker for this algo
             self.halt_algo(
                 algo_id,
-                format!("Automatic circuit breaker: OTR breached (ratio: {current_otr})"),
+                format!(
+                    "Automatic circuit breaker: 1-min OTR breached (ratio: {window_otr})"
+                ),
                 now,
             );
             let r = RiskRefusal::OtrBreached {
                 algo_id: algo_id.to_string(),
-                current_otr,
+                current_otr: window_otr,
                 max_otr: self.otr_config.max_otr,
             };
             self.record_refusal(&r);
             return Err(r);
+        }
+
+        // Check warning zone (pre-recording ratio)
+        if let Some(warning) = tracker.warning_ratio(&self.otr_config) {
+            tracing::warn!(
+                "Algo '{algo_id}' OTR in warning zone: {warning} > {}",
+                self.otr_config.warning_threshold
+            );
         }
 
         // 4. Circuit Limits & Price Band Check
@@ -477,10 +577,10 @@ impl RiskEngine {
         // All checks passed! Record order in rate limiter, algo tracker, and scrip tracker
         self.order_history.push_back(now);
         let tracker = self.algo_trackers.entry(algo_id.to_string()).or_default();
-        tracker.record_order_placement();
+        tracker.record_order_placement(now);
 
         let scrip_tracker = self.scrip_trackers.entry(instrument.clone()).or_default();
-        scrip_tracker.record_order_placement();
+        scrip_tracker.record_order_placement(now);
 
         Ok(())
     }
