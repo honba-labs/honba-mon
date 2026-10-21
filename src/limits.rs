@@ -15,9 +15,23 @@ pub struct OrderRateLimit {
 }
 
 /// Hard risk limits applied synchronously to all outgoing orders and decisions.
+///
+/// This struct merges rules from `honba-kokoro-risk::RiskLimits` (deprecated)
+/// with the canonical honba-mon risk limit schema.
+///
+/// Legacy fields from `honba-kokoro-risk` (mapped during Phase 1.2):
+/// - `max_notional` (f64, per-order notional ceiling) → `max_notional_per_order` (Decimal)
+/// - `max_participation` (f64, fraction of ADV) → `max_quantity_per_order` (Quantity)
+/// - `order_rate` (OrderRateLimit) → `order_rate_limit` (OrderRateLimit)
+/// - `stale_after_ms` (u64, feed staleness) → tracked via separate circuit breaker
+///
+/// New honba-mon fields:
+/// - `max_daily_loss` (Decimal, daily cumulative loss limit)
+/// - `price_collar_bps` (u32, market order deviation collar in basis points)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 pub struct RiskLimits {
     /// Maximum notional value (in INR) permitted per single order.
+    /// `None` = no notional rule; `Some` must be finite and `> 0`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_notional_per_order: Option<Decimal>,
 
