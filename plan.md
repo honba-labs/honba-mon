@@ -48,6 +48,7 @@ ExecutionActor    Logged to Audit Stream &
   - [x] Eliminate all floating-point numbers; enforce `rust_decimal::Decimal`.
 - [x] **1.2 Legacy Rule Absorption** (COMPLETED)
   - [x] Merge `honba-kokoro-risk::RiskLimits` into `honba-mon::RiskLimits`.
+  - [x] **1.3 Cross-Repository Risk Migration Blueprint**: Formulate comprehensive migration plan in `honba-docs/docs/architecture/migration_plan_kokoro_risk_to_mon.md` to guide `honba-ya`, `honba-tamashii`, `honba-nou`, `honba-me`, and `honba-te` from deleted `honba-kokoro-risk` to `honba-mon`.
   - [x] Verify zero-error compilation across workspace.
 
 ### Phase 2: SEBI Compliance & Regulatory Circuit Breakers (M1) — Week 3–4
