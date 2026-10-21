@@ -75,12 +75,12 @@ ExecutionActor    Logged to Audit Stream &
   - [x] Limit gross leverage for intraday (`MIS`) products.
 
 ### Phase 4: Actor Runtime Integration & Performance Benchmarks (M3) — Week 7–8
-- [ ] **4.1 Wire into `honba-ya-actors::RiskActor`**
-  - [ ] Expose zero-allocation evaluation methods to `RiskActor`.
-  - [ ] Emit structured `RiskBreachEvent` on rejections for the persistence audit stream.
-- [ ] **4.2 Microsecond Latency Optimization**
-  - [ ] Optimize critical evaluation path with Criterion benchmarks (target: $< 15\,\mu\text{s}$ per order check).
-  - [ ] Ensure zero heap allocations during the pre-trade evaluation loop.
+- [x] **4.1 Wire into `honba-ya-actors::RiskActor`**
+  - [x] Expose zero-allocation evaluation methods to `RiskActor`.
+  - [x] Emit structured `RiskBreachEvent` on rejections for the persistence audit stream.
+- [x] **4.2 Microsecond Latency Optimization**
+  - [x] Optimize critical evaluation path with Criterion benchmarks (target: $< 15\,\mu\text{s}$ per order check).
+  - [x] Ensure zero heap allocations during the pre-trade evaluation loop.
 
 ---
 
