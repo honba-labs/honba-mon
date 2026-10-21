@@ -602,4 +602,59 @@ impl RiskEngine {
 
         Ok(())
     }
+
+    /// Check single-scrip position concentration against portfolio equity.
+    ///
+    /// Returns `Ok(())` if no concentration limit is configured, or if the
+    /// position value is within the allowed percentage of total equity.
+    /// Returns `Err(RiskRefusal::PositionConcentrationExceeded)` if the limit
+    /// is breached.
+    pub fn check_position_concentration(
+        &self,
+        instrument: &InstrumentId,
+        position_value: Decimal,
+        total_equity: Decimal,
+    ) -> Result<(), RiskRefusal> {
+        if let Some(max_pct) = self.limits.max_position_concentration_pct {
+            if total_equity > Decimal::ZERO {
+                let concentration = (position_value / total_equity) * Decimal::from(100);
+                if concentration > max_pct {
+                    let r = RiskRefusal::PositionConcentrationExceeded {
+                        instrument: instrument.clone(),
+                        position_value,
+                        total_equity,
+                        max_pct,
+                    };
+                    return Err(r);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Check MIS (intraday) gross leverage against portfolio equity.
+    ///
+    /// Returns `Ok(())` if no leverage limit is configured, or if the gross
+    /// exposure is within the allowed leverage multiple of total equity.
+    /// Returns `Err(RiskRefusal::MisLeverageExceeded)` if the limit is breached.
+    pub fn check_mis_leverage(
+        &self,
+        gross_exposure: Decimal,
+        total_equity: Decimal,
+    ) -> Result<(), RiskRefusal> {
+        if let Some(max_leverage) = self.limits.max_mis_leverage {
+            if total_equity > Decimal::ZERO {
+                let leverage = gross_exposure / total_equity;
+                if leverage > max_leverage {
+                    let r = RiskRefusal::MisLeverageExceeded {
+                        gross_exposure,
+                        total_equity,
+                        max_leverage,
+                    };
+                    return Err(r);
+                }
+            }
+        }
+        Ok(())
+    }
 }

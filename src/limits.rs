@@ -57,6 +57,16 @@ pub struct RiskLimits {
     /// Examples: NIFTY → 1,800, BANKNIFTY → 900.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub freeze_limits: HashMap<InstrumentId, Quantity>,
+
+    /// Maximum single-scrip position concentration as a percentage of total
+    /// portfolio equity (e.g., 10.0 means max 10% in any one scrip).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_position_concentration_pct: Option<Decimal>,
+
+    /// Maximum gross leverage for intraday (MIS) products.
+    /// E.g., 5.0 means max 5x leverage on gross exposure vs equity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_mis_leverage: Option<Decimal>,
 }
 
 impl RiskLimits {

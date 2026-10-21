@@ -111,6 +111,28 @@ pub enum RiskRefusal {
         details: String,
     },
 
+    /// Single-scrip position concentration exceeds configured percentage of portfolio equity.
+    PositionConcentrationExceeded {
+        /// Instrument being traded
+        instrument: InstrumentId,
+        /// Current position value in INR
+        position_value: Decimal,
+        /// Total portfolio equity in INR
+        total_equity: Decimal,
+        /// Maximum allowed concentration percentage
+        max_pct: Decimal,
+    },
+
+    /// Gross leverage for MIS (intraday) products exceeds configured limit.
+    MisLeverageExceeded {
+        /// Gross exposure in INR
+        gross_exposure: Decimal,
+        /// Total portfolio equity in INR
+        total_equity: Decimal,
+        /// Maximum allowed leverage
+        max_leverage: Decimal,
+    },
+
     /// Order failed structural or tick validation.
     InvalidOrder {
         /// Description of failure
@@ -193,6 +215,31 @@ impl fmt::Display for RiskRefusal {
             Self::ReduceOnlyViolation { details } => {
                 write!(f, "Reduce-only mode violation: {details}")
             }
+            Self::PositionConcentrationExceeded {
+                instrument,
+                position_value,
+                total_equity,
+                max_pct,
+            } => write!(
+                f,
+                "Position concentration exceeded for {instrument}: {} INR / {} INR equity = {:.1}% > max {:.1}%",
+                position_value,
+                total_equity,
+                (position_value / total_equity) * Decimal::from(100),
+                max_pct
+            ),
+            Self::MisLeverageExceeded {
+                gross_exposure,
+                total_equity,
+                max_leverage,
+            } => write!(
+                f,
+                "MIS leverage exceeded: {} INR exposure / {} INR equity = {:.1}x > max {:.1}x",
+                gross_exposure,
+                total_equity,
+                gross_exposure / total_equity,
+                max_leverage
+            ),
             Self::InvalidOrder { error } => write!(f, "Invalid order: {error}"),
         }
     }
@@ -216,6 +263,8 @@ impl RiskRefusal {
             Self::OrderRateExceeded { .. } => "order_rate_exceeded",
             Self::DailyLossExceeded { .. } => "daily_loss_exceeded",
             Self::ReduceOnlyViolation { .. } => "reduce_only_violation",
+            Self::PositionConcentrationExceeded { .. } => "position_concentration_exceeded",
+            Self::MisLeverageExceeded { .. } => "mis_leverage_exceeded",
             Self::InvalidOrder { .. } => "invalid_order",
         }
     }
