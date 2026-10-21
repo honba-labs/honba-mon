@@ -1,9 +1,10 @@
 //! Configurable risk limits for orders, notional values, and rates.
 
-use honba_core::Quantity;
+use honba_core::{InstrumentId, Quantity};
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Rate limit: maximum number of approved orders in an event-time window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -50,6 +51,12 @@ pub struct RiskLimits {
     /// Allowed market order deviation collar in basis points (1 bp = 0.01%).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_collar_bps: Option<u32>,
+
+    /// Per-scrip freeze limits (exchange single-order quantity ceilings).
+    /// Maps instrument to maximum allowed quantity per single order.
+    /// Examples: NIFTY → 1,800, BANKNIFTY → 900.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub freeze_limits: HashMap<InstrumentId, Quantity>,
 }
 
 impl RiskLimits {
@@ -67,6 +74,11 @@ impl RiskLimits {
         }
         if let Some(collar) = self.price_collar_bps {
             if collar == 0 {
+                return false;
+            }
+        }
+        for (_, qty) in &self.freeze_limits {
+            if !qty.is_positive() {
                 return false;
             }
         }

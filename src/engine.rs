@@ -520,6 +520,19 @@ impl RiskEngine {
             }
         }
 
+        // 5.5 Exchange Freeze Limit Check (per-scrip quantity ceiling)
+        if let Some(freeze_qty) = self.limits.freeze_limits.get(instrument) {
+            if quantity.0 > freeze_qty.0 {
+                let r = RiskRefusal::FreezeLimitExceeded {
+                    instrument: instrument.clone(),
+                    requested: quantity,
+                    limit: *freeze_qty,
+                };
+                self.record_refusal(&r);
+                return Err(r);
+            }
+        }
+
         // 6. Hard Maximum Notional Check
         if let Some(max_notional) = self.limits.max_notional_per_order {
             let eval_price = limit_price

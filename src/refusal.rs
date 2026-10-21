@@ -1,7 +1,7 @@
 //! Refusal types indicating why an order or decision was rejected by the risk gate.
 
 use chrono::{DateTime, Utc};
-use honba_core::{Price, PriceBand, Quantity};
+use honba_core::{InstrumentId, Price, PriceBand, Quantity};
 use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -67,6 +67,16 @@ pub enum RiskRefusal {
         requested: Decimal,
         /// Configured limit
         limit: Decimal,
+    },
+
+    /// Order quantity exceeds exchange freeze limit for the scrip.
+    FreezeLimitExceeded {
+        /// Instrument being traded
+        instrument: InstrumentId,
+        /// Requested quantity
+        requested: Quantity,
+        /// Exchange freeze limit for this scrip
+        limit: Quantity,
     },
 
     /// Order quantity exceeds configured limit.
@@ -155,6 +165,15 @@ impl fmt::Display for RiskRefusal {
             Self::MaxQuantityExceeded { requested, limit } => {
                 write!(f, "Order quantity {} exceeds ceiling {}", requested, limit)
             }
+            Self::FreezeLimitExceeded {
+                instrument,
+                requested,
+                limit,
+            } => write!(
+                f,
+                "Exchange freeze limit exceeded for {instrument}: requested {} > limit {}",
+                requested, limit
+            ),
             Self::OrderRateExceeded {
                 count,
                 limit,
@@ -193,6 +212,7 @@ impl RiskRefusal {
             Self::PriceBandViolation { .. } => "price_band_violation",
             Self::MaxNotionalExceeded { .. } => "max_notional_exceeded",
             Self::MaxQuantityExceeded { .. } => "max_quantity_exceeded",
+            Self::FreezeLimitExceeded { .. } => "freeze_limit_exceeded",
             Self::OrderRateExceeded { .. } => "order_rate_exceeded",
             Self::DailyLossExceeded { .. } => "daily_loss_exceeded",
             Self::ReduceOnlyViolation { .. } => "reduce_only_violation",
