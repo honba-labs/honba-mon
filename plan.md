@@ -82,10 +82,15 @@ ExecutionActor    Logged to Audit Stream &
   - [x] Optimize critical evaluation path with Criterion benchmarks (target: $< 15\,\mu\text{s}$ per order check).
   - [x] Ensure zero heap allocations during the pre-trade evaluation loop.
 
----
-
 ## 3. Verification & Benchmark Suite
 
-- [ ] `cargo test -p honba-mon`: Comprehensive unit tests for OTR calculation, price band checking, and freeze limits.
-- [ ] `proptest`: Randomized order stream fuzzing ensuring risk engine never panics or yields false-positive approvals.
-- [ ] Criterion micro-benchmarks asserting $< 15\,\mu\text{s}$ evaluation latency under high load.
+- [x] `cargo test -p honba-mon`: Comprehensive unit tests for OTR calculation, price band checking, and freeze limits.
+- [x] `proptest`: Randomized order stream fuzzing ensuring risk engine never panics or yields false-positive approvals.
+- [x] Criterion micro-benchmarks asserting $< 15\,\mu\text{s}$ evaluation latency under high load.
+
+---
+
+### Phase 5: Production Hardening & Cross-Repository Integration (M4) — Week 9–10
+- [x] **5.1 Property-Based Testing with Proptest**: 12 properties covering no-panic guarantees, empty algo_id rejection, zero quantity rejection, unregistered algo rejection, valid order acceptance, price band consistency, freeze limit consistency, daily loss breaker, OTR breach halt, market circuit block, global halt block, check_order_fast equivalence.
+- [x] **5.2 Criterion Micro-Benchmarks**: All benchmarks 125-212 ns per individual check (well under 15µs target).
+- [x] **5.3 Cross-Repository Integration**: honba-ya-actors RiskActor wiring, RiskBreachEvent emission, honba-ya-persistence breach event persistence, honba-nou-strategy dependency fix, honba-ya-api-rest rsa version fix.
