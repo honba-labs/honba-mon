@@ -64,15 +64,15 @@ ExecutionActor    Logged to Audit Stream &
   - [ ] Implement `validate_price_band(&Price, &PriceBand) -> Result<(), RiskError>`.
 
 ### Phase 3: Capital, Margin & Position Collars (M2) — Week 5–6
-- [ ] **3.1 Single-Order Notional & Freeze Limits**
-  - [ ] Implement maximum notional collar per order (e.g. ₹25,00,000 max single order).
-  - [ ] Implement exchange freeze limit enforcement (NIFTY: 1,800, BANKNIFTY: 900).
-- [ ] **3.2 Account-Level Maximum Daily Loss & Drawdown Breaker**
-  - [ ] Track cumulative daily realized + unrealized loss from `honba-kokoro-portfolio`.
-  - [ ] Trip global emergency kill-switch when daily loss reaches threshold, cancelling all open orders and blocking new submissions.
-- [ ] **3.3 Position Concentration & Leverage Caps**
-  - [ ] Enforce maximum single-scrip exposure as a percentage of total portfolio equity.
-  - [ ] Limit gross leverage for intraday (`MIS`) products.
+- [x] **3.1 Single-Order Notional & Freeze Limits**
+  - [x] Implement maximum notional collar per order (e.g. ₹25,00,000 max single order).
+  - [x] Implement exchange freeze limit enforcement (NIFTY: 1,800, BANKNIFTY: 900).
+- [x] **3.2 Account-Level Maximum Daily Loss & Drawdown Breaker**
+  - [x] Track cumulative daily realized + unrealized loss from `honba-kokoro-portfolio`.
+  - [x] Trip global emergency kill-switch when daily loss reaches threshold, cancelling all open orders and blocking new submissions.
+- [x] **3.3 Position Concentration & Leverage Caps**
+  - [x] Enforce maximum single-scrip exposure as a percentage of total portfolio equity.
+  - [x] Limit gross leverage for intraday (`MIS`) products.
 
 ### Phase 4: Actor Runtime Integration & Performance Benchmarks (M3) — Week 7–8
 - [ ] **4.1 Wire into `honba-ya-actors::RiskActor`**
