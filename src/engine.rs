@@ -5,6 +5,7 @@
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use std::collections::{HashMap, VecDeque};
 
 use honba_core::{Decision, Exchange, FillReport, InstrumentId, OrderRequest, Price, PriceBand, Quantity};
@@ -441,14 +442,32 @@ impl RiskEngine {
             }
         }
 
-        // 2. Per-Algo ID Halt Check
-        if let Some(AlgoState::Halted { reason, .. }) = self.algo_states.get(algo_id) {
-            let r = RiskRefusal::AlgoHalted {
-                algo_id: algo_id.to_string(),
-                reason: reason.clone(),
-            };
-            self.record_refusal(&r);
-            return Err(r);
+        // 2. Per-Algo ID Halt Check (with auto-resume after cooling-off)
+        if let Some(AlgoState::Halted { reason, halted_at }) = self.algo_states.get(algo_id) {
+            // Auto-resume if cooldown period has expired
+            if self.otr_config.halt_cooldown_ms > 0 {
+                let cooldown = chrono::Duration::milliseconds(self.otr_config.halt_cooldown_ms as i64);
+                if now >= *halted_at + cooldown {
+                    self.resume_algo(algo_id);
+                    tracing::info!(
+                        "Auto-resumed algo '{algo_id}' after OTR cooldown period"
+                    );
+                } else {
+                    let r = RiskRefusal::AlgoHalted {
+                        algo_id: algo_id.to_string(),
+                        reason: reason.clone(),
+                    };
+                    self.record_refusal(&r);
+                    return Err(r);
+                }
+            } else {
+                let r = RiskRefusal::AlgoHalted {
+                    algo_id: algo_id.to_string(),
+                    reason: reason.clone(),
+                };
+                self.record_refusal(&r);
+                return Err(r);
+            }
         }
 
         // 2.5 SEBI Algo ID Registry Check
@@ -467,7 +486,10 @@ impl RiskEngine {
             .entry(algo_id.to_string())
             .or_default();
 
-        // Check sliding-window OTR over 1-minute window BEFORE recording this order
+        // Record this order placement before checking OTR
+        tracker.record_order_placement(now);
+
+        // Check sliding-window OTR over 1-minute window
         let window_otr = tracker.window_otr_1min(now);
         if tracker.total_order_operations() >= self.otr_config.min_orders_before_enforcement
             && window_otr > self.otr_config.max_otr
@@ -495,6 +517,37 @@ impl RiskEngine {
                 "Algo '{algo_id}' OTR in warning zone: {warning} > {}",
                 self.otr_config.warning_threshold
             );
+        }
+
+        // 3.5 Per-Scrip OTR Circuit Breaker (SEBI scrip-level OTR limits)
+        let scrip_tracker = self
+            .scrip_trackers
+            .entry(instrument.clone())
+            .or_default();
+
+        // Record this order placement before checking scrip OTR
+        scrip_tracker.record_order_placement(now);
+
+        let scrip_window_otr = scrip_tracker.window_otr_1min(now);
+        if scrip_tracker.total_order_operations() >= self.otr_config.min_orders_before_enforcement
+            && scrip_window_otr > self.otr_config.max_otr
+        {
+            // Automatically halt trading on this scrip
+            self.halt_algo(
+                algo_id,
+                format!(
+                    "Scrip OTR breached for {} (ratio: {scrip_window_otr})",
+                    instrument.symbol
+                ),
+                now,
+            );
+            let r = RiskRefusal::ScripOtrBreached {
+                instrument: instrument.clone(),
+                current_otr: scrip_window_otr,
+                max_otr: self.otr_config.max_otr,
+            };
+            self.record_refusal(&r);
+            return Err(r);
         }
 
         // 4. Circuit Limits & Price Band Check
@@ -592,13 +645,9 @@ impl RiskEngine {
             }
         }
 
-        // All checks passed! Record order in rate limiter, algo tracker, and scrip tracker
+        // All checks passed! Record order in rate limiter only
+        // (algo and scrip trackers already recorded before their respective checks)
         self.order_history.push_back(now);
-        let tracker = self.algo_trackers.entry(algo_id.to_string()).or_default();
-        tracker.record_order_placement(now);
-
-        let scrip_tracker = self.scrip_trackers.entry(instrument.clone()).or_default();
-        scrip_tracker.record_order_placement(now);
 
         Ok(())
     }
@@ -841,6 +890,27 @@ impl RiskEngine {
             }
         }
         Ok(())
+    }
+
+    /// Suggest how many slices are needed to bring an order under the freeze limit.
+    ///
+    /// Returns `Ok(num_slices)` if a freeze limit exists and the order exceeds it,
+    /// where `num_slices` is the minimum number of child orders needed so each
+    /// slice is at or below the freeze limit.
+    /// Returns `Ok(1)` if no freeze limit exists or the order is within the limit.
+    pub fn suggest_freeze_slices(
+        &self,
+        instrument: &InstrumentId,
+        quantity: Quantity,
+    ) -> u32 {
+        if let Some(freeze_qty) = self.limits.freeze_limits.get(instrument) {
+            if quantity.0 > freeze_qty.0 {
+                // Ceiling division: ceil(quantity / freeze_qty)
+                let slices = (quantity.0 + freeze_qty.0 - Decimal::ONE) / freeze_qty.0;
+                return slices.to_i32().unwrap_or(i32::MAX).max(1) as u32;
+            }
+        }
+        1
     }
 
     /// Check MIS (intraday) gross leverage against portfolio equity.

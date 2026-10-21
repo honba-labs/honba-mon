@@ -43,6 +43,16 @@ pub enum RiskRefusal {
         resume_at: Option<DateTime<Utc>>,
     },
 
+    /// SEBI Order-to-Trade Ratio limit exceeded per scrip.
+    ScripOtrBreached {
+        /// Instrument with breached OTR
+        instrument: InstrumentId,
+        /// Current calculated OTR for this scrip
+        current_otr: Decimal,
+        /// Configured ceiling
+        max_otr: Decimal,
+    },
+
     /// SEBI Order-to-Trade Ratio limit exceeded.
     OtrBreached {
         /// Breaching algo ID
@@ -174,6 +184,14 @@ impl fmt::Display for RiskRefusal {
                 f,
                 "SEBI OTR threshold breached for algo '{algo_id}': current {current_otr} > limit {max_otr}"
             ),
+            Self::ScripOtrBreached {
+                instrument,
+                current_otr,
+                max_otr,
+            } => write!(
+                f,
+                "SEBI scrip OTR threshold breached for {instrument}: current {current_otr} > limit {max_otr}"
+            ),
             Self::PriceBandViolation { price, band } => write!(
                 f,
                 "Price band violation: order price {} outside circuit bounds [{}, {}]",
@@ -256,6 +274,7 @@ impl RiskRefusal {
             Self::AlgoNotRegistered { .. } => "algo_not_registered",
             Self::MarketCircuitHalt { .. } => "market_circuit_halt",
             Self::OtrBreached { .. } => "sebi_otr_breach",
+            Self::ScripOtrBreached { .. } => "sebi_scrip_otr_breach",
             Self::PriceBandViolation { .. } => "price_band_violation",
             Self::MaxNotionalExceeded { .. } => "max_notional_exceeded",
             Self::MaxQuantityExceeded { .. } => "max_quantity_exceeded",

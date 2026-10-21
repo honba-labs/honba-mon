@@ -4,7 +4,7 @@
 //! Uses Criterion for statistical measurement and regression detection.
 
 use chrono::Utc;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use honba_core::{Exchange, InstrumentId, OrderRequest, OrderSide, OrderType, Price, Quantity};
 use honba_mon::{OtrConfig, RiskEngine, RiskLimits};
 
@@ -42,10 +42,7 @@ fn bench_check_order_with_price_band(c: &mut Criterion) {
         Price::from_rupees("3000.00").unwrap(),
         Price::from_rupees("2500.00").unwrap(),
     );
-    engine.set_price_band(
-        InstrumentId::new(Exchange::Nse, "RELIANCE"),
-        band,
-    );
+    engine.set_price_band(InstrumentId::new(Exchange::Nse, "RELIANCE"), band);
     let req = make_order_request("bench-algo", "RELIANCE", 10);
     let now = Utc::now();
 
@@ -146,7 +143,7 @@ fn bench_sequential_order_checks(c: &mut Criterion) {
             for i in 0..100u64 {
                 let req = make_order_request("bench-algo", "RELIANCE", i + 1);
                 let result = engine.check_order(black_box(&req), black_box(now));
-                let _ = black_box(result);;
+                let _ = black_box(result);
             }
         })
     });

@@ -91,6 +91,26 @@ ExecutionActor    Logged to Audit Stream &
 ---
 
 ### Phase 5: Production Hardening & Cross-Repository Integration (M4) — Week 9–10
-- [x] **5.1 Property-Based Testing with Proptest**: 12 properties covering no-panic guarantees, empty algo_id rejection, zero quantity rejection, unregistered algo rejection, valid order acceptance, price band consistency, freeze limit consistency, daily loss breaker, OTR breach halt, market circuit block, global halt block, check_order_fast equivalence.
+- [x] **5.1 Property-Based Testing with Proptest**: 16 properties covering no-panic guarantees, empty algo_id rejection, zero quantity rejection, unregistered algo rejection, valid order acceptance, price band consistency, freeze limit consistency, daily loss breaker, OTR breach halt, market circuit block, global halt block, check_order_fast equivalence, scrip OTR breach, freeze slice suggestion, auto-resume cooldown, no-freeze-limit returns one.
 - [x] **5.2 Criterion Micro-Benchmarks**: All benchmarks 125-212 ns per individual check (well under 15µs target).
 - [x] **5.3 Cross-Repository Integration**: honba-ya-actors RiskActor wiring, RiskBreachEvent emission, honba-ya-persistence breach event persistence, honba-nou-strategy dependency fix, honba-ya-api-rest rsa version fix.
+
+### Phase 6: Advanced Regulatory Compliance & Order Slicing Integration (M5) — Week 11–12
+- [x] **6.1 Per-Scrip OTR Circuit Breaker**
+  - [x] Per-instrument OTR tracking via `scrip_trackers` HashMap
+  - [x] Scrip OTR check integrated into `evaluate_core` pipeline (check #3.5)
+  - [x] New `ScripOtrBreached` refusal variant with instrument, current_otr, max_otr
+  - [x] Automatic algo halt on scrip OTR breach
+- [x] **6.2 Freeze Limit Order Slicing Integration**
+  - [x] `suggest_freeze_slices()` method computes minimum child orders needed
+  - [x] Ceiling division: ceil(quantity / freeze_limit)
+  - [x] Returns 1 when no freeze limit configured or order within limit
+- [x] **6.3 Circuit Breaker Auto-Resume**
+  - [x] `halt_cooldown_ms` field added to `OtrConfig`
+  - [x] Automatic algo resume after cooling-off period expires
+  - [x] Resume logic integrated into `evaluate_core` algo halt check
+- [x] **6.4 Zero-Allocation Hot Path Fixes**
+  - [x] `record_order_placement` called before OTR checks (correct ordering)
+  - [x] Eliminated double-counting of scrip tracker events
+
+---

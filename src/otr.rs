@@ -29,6 +29,10 @@ pub struct OtrConfig {
     pub window_1min_ms: u64,
     /// Sliding window duration in milliseconds for medium-term OTR (default 5 minutes).
     pub window_5min_ms: u64,
+
+    /// Cooling-off period in milliseconds after an OTR breach halt before
+    /// automatic resumption is attempted. `0` means no auto-resume.
+    pub halt_cooldown_ms: u64,
 }
 
 impl Default for OtrConfig {
@@ -44,6 +48,8 @@ impl Default for OtrConfig {
             window_1min_ms: 60_000,
             // 5 minute window
             window_5min_ms: 300_000,
+            // No auto-resume by default
+            halt_cooldown_ms: 0,
         }
     }
 }
@@ -148,7 +154,12 @@ impl OtrTracker {
         let ops_in_window: u64 = self
             .events
             .iter()
-            .filter(|e| matches!(e.kind, OrderEventKind::Placement | OrderEventKind::ModOrCancel))
+            .filter(|e| {
+                matches!(
+                    e.kind,
+                    OrderEventKind::Placement | OrderEventKind::ModOrCancel
+                )
+            })
             .count() as u64;
         let trades_in_window: u64 = self
             .events
@@ -219,7 +230,7 @@ mod tests {
     #[test]
     fn test_sliding_window_otr() {
         let mut tracker = OtrTracker::new();
-        let base = Utc.ymd(2025, 8, 1).and_hms(10, 0, 0);
+        let base = Utc.with_ymd_and_hms(2025, 8, 1, 10, 0, 0).unwrap();
 
         // Place 5 orders at t=0
         for _ in 0..5 {
