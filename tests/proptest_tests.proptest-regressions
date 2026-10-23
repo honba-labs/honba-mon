@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d4b630c5283811bafd6af1ada4c2fbcc6cdd16a375f8f0efc6a8dda145fd6291 # shrinks to instrument = InstrumentId { exchange: Nse, symbol: "NIFTY", token: None, isin: None }, algo_id = "0"

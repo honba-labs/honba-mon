@@ -3,25 +3,24 @@
 //! Ensures the risk engine never panics or yields false-positive approvals
 //! under randomized order streams, adversarial inputs, and edge-case scenarios.
 
-use proptest::prelude::*;
+use chrono::Utc;
 use honba_core::{Exchange, InstrumentId, OrderRequest, OrderSide, OrderType, Price, Quantity};
 use honba_mon::{OtrConfig, RiskEngine, RiskLimits};
-use chrono::Utc;
+use proptest::prelude::*;
 use rust_decimal::Decimal;
 
 /// Arbitrary order side generator.
 fn arb_order_side() -> impl Strategy<Value = OrderSide> {
-    prop_oneof![
-        Just(OrderSide::Buy),
-        Just(OrderSide::Sell),
-    ]
+    prop_oneof![Just(OrderSide::Buy), Just(OrderSide::Sell),]
 }
 
 /// Arbitrary order type generator.
 fn arb_order_type() -> impl Strategy<Value = OrderType> {
     prop_oneof![
         Just(OrderType::Market),
-        any::<f64>().prop_map(|p| OrderType::Limit(Price::from_rupees(&format!("{:.2}", p.abs() % 10000.0)).unwrap())),
+        any::<f64>().prop_map(|p| OrderType::Limit(
+            Price::from_rupees(&format!("{:.2}", p.abs() % 10000.0)).unwrap()
+        )),
     ]
 }
 
@@ -40,7 +39,7 @@ fn arb_quantity() -> impl Strategy<Value = Quantity> {
     (1u64..10000u64).prop_map(|q| Quantity::from_u64(q))
 }
 
-/// Property: No order check should ever panic, regardless of input.
+// Property: No order check should ever panic, regardless of input.
 proptest! {
     #[test]
     fn test_no_panic_on_random_orders(
@@ -60,7 +59,7 @@ proptest! {
     }
 }
 
-/// Property: Empty algo_id is always rejected.
+// Property: Empty algo_id is always rejected.
 proptest! {
     #[test]
     fn test_empty_algo_id_always_rejected(
@@ -78,7 +77,7 @@ proptest! {
     }
 }
 
-/// Property: Zero quantity is always rejected.
+// Property: Zero quantity is always rejected.
 proptest! {
     #[test]
     fn test_zero_quantity_always_rejected(
@@ -97,7 +96,7 @@ proptest! {
     }
 }
 
-/// Property: Unregistered algo_id is always rejected.
+// Property: Unregistered algo_id is always rejected.
 proptest! {
     #[test]
     fn test_unregistered_algo_always_rejected(
@@ -117,7 +116,7 @@ proptest! {
     }
 }
 
-/// Property: Registered algo_id with valid order passes when no limits configured.
+// Property: Registered algo_id with valid order passes when no limits configured.
 proptest! {
     #[test]
     fn test_valid_order_passes_with_no_limits(
@@ -137,7 +136,7 @@ proptest! {
     }
 }
 
-/// Property: Price band violation is consistently detected.
+// Property: Price band violation is consistently detected.
 proptest! {
     #[test]
     fn test_price_band_violation_consistently_detected(
@@ -180,7 +179,7 @@ proptest! {
     }
 }
 
-/// Property: Freeze limit violation is consistently detected.
+// Property: Freeze limit violation is consistently detected.
 proptest! {
     #[test]
     fn test_freeze_limit_violation_consistently_detected(
@@ -217,7 +216,7 @@ proptest! {
     }
 }
 
-/// Property: Daily loss breaker triggers global halt.
+// Property: Daily loss breaker triggers global halt.
 proptest! {
     #[test]
     fn test_daily_loss_breaker_triggers_global_halt(
@@ -240,7 +239,7 @@ proptest! {
     }
 }
 
-/// Property: OTR breach triggers automatic algo halt.
+// Property: OTR breach triggers automatic algo halt.
 proptest! {
     #[test]
     fn test_otr_breach_triggers_algo_halt(
@@ -277,7 +276,7 @@ proptest! {
     }
 }
 
-/// Property: Market circuit breaker blocks all orders.
+// Property: Market circuit breaker blocks all orders.
 proptest! {
     #[test]
     fn test_market_circuit_blocks_all_orders(
@@ -297,7 +296,7 @@ proptest! {
     }
 }
 
-/// Property: Global halt blocks all orders.
+// Property: Global halt blocks all orders.
 proptest! {
     #[test]
     fn test_global_halt_blocks_all_orders(
@@ -316,7 +315,7 @@ proptest! {
     }
 }
 
-/// Property: check_order_fast behaves identically to check_order for pre-registered algos.
+// Property: check_order_fast behaves identically to check_order for pre-registered algos.
 proptest! {
     #[test]
     fn test_check_order_fast_matches_check_order(
@@ -349,7 +348,7 @@ proptest! {
     }
 }
 
-/// Property: Per-scrip OTR breach is detected and blocks orders on that scrip.
+// Property: Per-scrip OTR breach is detected and blocks orders on that scrip.
 proptest! {
     #[test]
     fn test_scrip_otr_breach_detected(
@@ -389,7 +388,7 @@ proptest! {
     }
 }
 
-/// Property: suggest_freeze_slices returns at least 1 and correct count.
+// Property: suggest_freeze_slices returns at least 1 and correct count.
 proptest! {
     #[test]
     fn test_suggest_freeze_slices(
@@ -417,14 +416,14 @@ proptest! {
     }
 }
 
-/// Property: Auto-resume after cooldown period allows orders again.
+// Property: Auto-resume after cooldown period allows orders again.
 proptest! {
     #[test]
     fn test_auto_resume_after_cooldown(
         instrument in arb_instrument_id(),
         algo_id in "[a-z0-9-]{1,20}",
     ) {
-        let mut limits = RiskLimits::default();
+        let limits = RiskLimits::default();
         let otr_config = OtrConfig {
             max_otr: Decimal::from(1),
             min_orders_before_enforcement: 1,
@@ -464,7 +463,7 @@ proptest! {
     }
 }
 
-/// Property: No freeze limit means suggest_freeze_slices returns 1.
+// Property: No freeze limit means suggest_freeze_slices returns 1.
 proptest! {
     #[test]
     fn test_no_freeze_limit_returns_one_slice(

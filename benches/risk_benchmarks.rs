@@ -158,6 +158,7 @@ fn bench_otr_breach(c: &mut Criterion) {
         warning_threshold: rust_decimal::Decimal::from(40),
         window_1min_ms: 60_000,
         window_5min_ms: 300_000,
+        halt_cooldown_ms: 0,
     };
     let mut engine = RiskEngine::new(limits, otr_config);
     engine.register_algo("breach-algo");

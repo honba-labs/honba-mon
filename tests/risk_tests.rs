@@ -199,10 +199,7 @@ fn test_sebi_algo_not_registered() {
         "unregistered-algo",
     );
     let res = engine.check_order(&req, now);
-    assert!(matches!(
-        res,
-        Err(RiskRefusal::AlgoNotRegistered { .. })
-    ));
+    assert!(matches!(res, Err(RiskRefusal::AlgoNotRegistered { .. })));
 }
 
 #[test]
@@ -335,10 +332,7 @@ fn test_algo_registry_suspend() {
     );
 
     let res = engine.check_order(&req, now);
-    assert!(matches!(
-        res,
-        Err(RiskRefusal::AlgoNotRegistered { .. })
-    ));
+    assert!(matches!(res, Err(RiskRefusal::AlgoNotRegistered { .. })));
 
     // Reactivate and verify
     engine.reactivate_algo("suspended-algo");
@@ -349,7 +343,7 @@ fn test_algo_registry_suspend() {
 fn test_validate_price_band() {
     let mut engine = RiskEngine::default();
     engine.register_algo("algo-1");
-    let now = Utc::now();
+    let _now = Utc::now();
     let inst = InstrumentId::new(Exchange::Nse, "RELIANCE");
 
     let band = PriceBand::new(
@@ -360,9 +354,11 @@ fn test_validate_price_band() {
     engine.set_price_band(inst.clone(), band);
 
     // Price within band
-    assert!(engine
-        .validate_price_band(&inst, Price::from_rupees("2550.00").unwrap())
-        .is_ok());
+    assert!(
+        engine
+            .validate_price_band(&inst, Price::from_rupees("2550.00").unwrap())
+            .is_ok()
+    );
 
     // Price above band
     assert!(matches!(
@@ -378,7 +374,11 @@ fn test_validate_price_band() {
 
     // Instrument with no band - always valid
     let unknown = InstrumentId::new(Exchange::Nse, "UNKNOWN");
-    assert!(engine.validate_price_band(&unknown, Price::from_rupees("99999.00").unwrap()).is_ok());
+    assert!(
+        engine
+            .validate_price_band(&unknown, Price::from_rupees("99999.00").unwrap())
+            .is_ok()
+    );
 }
 
 #[test]
@@ -467,7 +467,7 @@ fn test_suggest_freeze_slices() {
 
 #[test]
 fn test_auto_resume_after_cooldown() {
-    let mut limits = RiskLimits::default();
+    let limits = RiskLimits::default();
     let otr_config = OtrConfig {
         max_otr: Decimal::from(1),
         min_orders_before_enforcement: 1,
