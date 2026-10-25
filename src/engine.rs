@@ -8,7 +8,13 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::{HashMap, VecDeque};
 
-use honba_core::{Decision, Exchange, FillReport, InstrumentId, OrderRequest, Price, PriceBand, Quantity};
+use honba_core::{
+    Decision, Exchange, FillReport, InstrumentId, OrderRequest, PositionSizingRequest, Price,
+    PriceBand, Quantity, RiskBudget, TraceContext,
+};
+
+use crate::error::RiskError;
+use crate::sizing_gate::SizingRiskRefusal;
 
 use crate::algo_registry::AlgoIdRegistry;
 use crate::limits::RiskLimits;
@@ -341,7 +347,7 @@ impl RiskEngine {
                 ..
             } => {
                 let inst = InstrumentId::new(Exchange::Nse, symbol.clone());
-                self.evaluate_core(algo_id, &inst, *qty, *price_limit, now)
+                self.evaluate_core(algo_id, &inst, *qty, *price_limit, now, None)
             }
             Decision::Hold { .. } => Ok(()),
             Decision::CancelAll { algo_id, .. } => {
@@ -379,6 +385,9 @@ impl RiskEngine {
                 error: "algo_id cannot be empty".to_string(),
             };
             self.record_refusal(&refusal);
+            let metrics = crate::metrics::global_metrics();
+            metrics.record_order_evaluated(&order.algo_id, false);
+            metrics.record_breach(&order.algo_id, refusal.rule());
             return Err(refusal);
         }
         if !order.quantity.is_positive() {
@@ -386,6 +395,9 @@ impl RiskEngine {
                 error: "quantity must be strictly positive".to_string(),
             };
             self.record_refusal(&refusal);
+            let metrics = crate::metrics::global_metrics();
+            metrics.record_order_evaluated(&order.algo_id, false);
+            metrics.record_breach(&order.algo_id, refusal.rule());
             return Err(refusal);
         }
 
@@ -396,11 +408,66 @@ impl RiskEngine {
             order.quantity,
             price_limit,
             now,
+            order.trace_context.as_ref(),
         )
     }
 
-    /// Core synchronous risk evaluation pipeline.
+    /// Core synchronous risk evaluation pipeline instrumented with OpenTelemetry
+    /// tracing spans propagating W3C [`TraceContext`] from `honba-core`.
     fn evaluate_core(
+        &mut self,
+        algo_id: &str,
+        instrument: &InstrumentId,
+        quantity: Quantity,
+        limit_price: Option<Price>,
+        now: DateTime<Utc>,
+        trace_context: Option<&TraceContext>,
+    ) -> Result<(), RiskRefusal> {
+        let start_time = std::time::Instant::now();
+
+        // Propagate W3C distributed trace context
+        let traceparent = trace_context.map(|t| t.to_traceparent()).unwrap_or_default();
+        let trace_id_hex = trace_context
+            .map(|t| format!("{:032x}", u128::from_be_bytes(t.trace_id)))
+            .unwrap_or_default();
+        let span_id_hex = trace_context
+            .map(|t| format!("{:016x}", u64::from_be_bytes(t.span_id)))
+            .unwrap_or_default();
+
+        let span = tracing::info_span!(
+            "risk_eval_core",
+            otel.name = "risk_eval_core",
+            otel.kind = "internal",
+            algo_id = %algo_id,
+            instrument = %instrument,
+            quantity = %quantity,
+            w3c.traceparent = %traceparent,
+            trace_id = %trace_id_hex,
+            span_id = %span_id_hex,
+        );
+        let _enter = span.enter();
+
+        let result = self.evaluate_core_checks(algo_id, instrument, quantity, limit_price, now);
+
+        let duration_secs = start_time.elapsed().as_secs_f64();
+        let metrics = crate::metrics::global_metrics();
+        metrics.record_evaluation_duration(duration_secs);
+
+        match &result {
+            Ok(()) => {
+                metrics.record_order_evaluated(algo_id, true);
+            }
+            Err(refusal) => {
+                metrics.record_order_evaluated(algo_id, false);
+                metrics.record_breach(algo_id, refusal.rule());
+            }
+        }
+
+        result
+    }
+
+    /// Internal evaluation checks for evaluate_core.
+    fn evaluate_core_checks(
         &mut self,
         algo_id: &str,
         instrument: &InstrumentId,
@@ -491,6 +558,11 @@ impl RiskEngine {
 
         // Check sliding-window OTR over 1-minute window
         let window_otr = tracker.window_otr_1min(now);
+        crate::metrics::global_metrics().set_otr_ratio(
+            algo_id,
+            "*",
+            window_otr.to_f64().unwrap_or(0.0),
+        );
         if tracker.total_order_operations() >= self.otr_config.min_orders_before_enforcement
             && window_otr > self.otr_config.max_otr
         {
@@ -529,6 +601,11 @@ impl RiskEngine {
         scrip_tracker.record_order_placement(now);
 
         let scrip_window_otr = scrip_tracker.window_otr_1min(now);
+        crate::metrics::global_metrics().set_otr_ratio(
+            algo_id,
+            &instrument.symbol,
+            scrip_window_otr.to_f64().unwrap_or(0.0),
+        );
         if scrip_tracker.total_order_operations() >= self.otr_config.min_orders_before_enforcement
             && scrip_window_otr > self.otr_config.max_otr
         {
@@ -661,6 +738,34 @@ impl RiskEngine {
     ///
     /// Target latency: < 15µs per order check.
     pub fn check_order_fast(
+        &mut self,
+        algo_id: &str,
+        instrument: &InstrumentId,
+        quantity: Quantity,
+        limit_price: Option<Price>,
+        now: DateTime<Utc>,
+    ) -> Result<(), RiskRefusal> {
+        let start_time = std::time::Instant::now();
+        let result = self.check_order_fast_checks(algo_id, instrument, quantity, limit_price, now);
+
+        let duration_secs = start_time.elapsed().as_secs_f64();
+        let metrics = crate::metrics::global_metrics();
+        metrics.record_evaluation_duration(duration_secs);
+
+        match &result {
+            Ok(()) => {
+                metrics.record_order_evaluated(algo_id, true);
+            }
+            Err(refusal) => {
+                metrics.record_order_evaluated(algo_id, false);
+                metrics.record_breach(algo_id, refusal.rule());
+            }
+        }
+
+        result
+    }
+
+    fn check_order_fast_checks(
         &mut self,
         algo_id: &str,
         instrument: &InstrumentId,
@@ -937,5 +1042,27 @@ impl RiskEngine {
             }
         }
         Ok(())
+    }
+
+    /// Synchronously validate a position sizing request against a risk budget and engine state.
+    pub fn validate_sizing_request(
+        &self,
+        request: &PositionSizingRequest,
+        budget: &RiskBudget,
+    ) -> Result<(), RiskError> {
+        if let GlobalState::Halted { reason, .. } = &self.global_state {
+            return Err(RiskError::SizingRefusal(SizingRiskRefusal::PlatformHalted {
+                reason: reason.clone(),
+            }));
+        }
+
+        let mut effective_budget = budget.clone();
+        if effective_budget.freeze_limit_qty.is_none() {
+            if let Some(freeze) = self.limits.freeze_limits.get(&request.instrument) {
+                effective_budget.freeze_limit_qty = Some(*freeze);
+            }
+        }
+
+        crate::sizing_gate::validate_sizing_request(request, &effective_budget)
     }
 }

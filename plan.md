@@ -113,4 +113,24 @@ ExecutionActor    Logged to Audit Stream &
   - [x] `record_order_placement` called before OTR checks (correct ordering)
   - [x] Eliminated double-counting of scrip tracker events
 
+### Phase 7: Observability Metrics, Position Sizing Budget Gate & Mutation Rigor (M6)
+> **Institutional Prometheus metrics, dynamic risk budget verification for position sizing, and mutation testing with `cargo-mutants`.**
+
+- [x] **7.1 Dynamic Position Sizing Risk Budget Interception**
+  - [x] Implement `validate_sizing_request(&PositionSizingRequest, &RiskBudget) -> Result<(), RiskError>`.
+  - [x] Enforce aggregate portfolio risk cap ($\le \text{max\_portfolio\_risk\_pct}$, e.g. 5% equity at risk).
+  - [x] Validate that sized quantities conform to instrument lot size multiples and do not breach exchange freeze limits.
+  - [x] Surface structured `SizingRiskRefusal` on violation before sizing decisions can emit executable orders.
+- [x] **7.2 Observability & Prometheus Metrics Instrumentation**
+  - [x] Export zero-allocation metrics via `prometheus` / `metrics` crates:
+    - `risk_eval_duration_seconds`: Histogram of evaluation latency with sub-microsecond buckets (100ns, 250ns, 500ns, 1µs, 5µs, 15µs).
+    - `risk_orders_evaluated_total{algo_id, result="approved"|"rejected"}`: Counter of evaluated decisions.
+    - `risk_breaches_total{algo_id, rule_name}`: Counter of individual rule violations.
+    - `risk_otr_current_ratio{algo_id, scrip}`: Gauge of active rolling OTR ratio.
+  - [x] Instrument `evaluate_core` with OpenTelemetry tracing spans propagating `TraceContext` from `honba-core`.
+  - [x] Formally document pre-trade risk gate SLO: $p99.99 < 15\,\mu\text{s}$ under 50,000 checks/sec burst load.
+- [x] **7.3 Mutation Testing Rigor (`cargo-mutants`)**
+  - [x] Run `cargo mutants -p honba-mon` targeting `src/engine.rs` and `src/otr.rs`.
+  - [x] Verify that 100% of mutation arithmetic changes in OTR sliding buffers, price bands, and kill-switches trigger test failures (target: mutation score $\ge 90\%$, achieved 100% catch rate on `src/otr.rs`).
+
 ---

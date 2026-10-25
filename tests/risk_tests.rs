@@ -153,34 +153,24 @@ fn test_sebi_algo_id_validation() {
     let now = Utc::now();
 
     // Empty algo_id violates SEBI Retail Algo circular
-    let req_empty_algo = OrderRequest {
-        client_order_id: uuid::Uuid::new_v4(),
-        instrument: InstrumentId::new(Exchange::Nse, "TCS"),
-        side: OrderSide::Buy,
-        order_type: OrderType::Market,
-        quantity: Quantity::from_u64(10),
-        tif: TimeInForce::Day,
-        algo_id: "".to_string(),
-        tag: None,
-        client_id: None,
-        correlation_id: None,
-    };
+    let req_empty_algo = OrderRequest::new(
+        InstrumentId::new(Exchange::Nse, "TCS"),
+        OrderSide::Buy,
+        OrderType::Market,
+        Quantity::from_u64(10),
+        "",
+    );
     let res = engine.check_order(&req_empty_algo, now);
     assert!(matches!(res, Err(RiskRefusal::InvalidOrder { .. })));
 
     // Zero quantity violates order rules
-    let req_zero_qty = OrderRequest {
-        client_order_id: uuid::Uuid::new_v4(),
-        instrument: InstrumentId::new(Exchange::Nse, "TCS"),
-        side: OrderSide::Buy,
-        order_type: OrderType::Market,
-        quantity: Quantity::ZERO,
-        tif: TimeInForce::Day,
-        algo_id: "algo-valid".to_string(),
-        tag: None,
-        client_id: None,
-        correlation_id: None,
-    };
+    let req_zero_qty = OrderRequest::new(
+        InstrumentId::new(Exchange::Nse, "TCS"),
+        OrderSide::Buy,
+        OrderType::Market,
+        Quantity::ZERO,
+        "algo-valid",
+    );
     let res2 = engine.check_order(&req_zero_qty, now);
     assert!(matches!(res2, Err(RiskRefusal::InvalidOrder { .. })));
 }
