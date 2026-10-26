@@ -42,7 +42,8 @@ impl AlgoIdRegistry {
 
     /// Register a new algo ID as active.
     pub fn register(&mut self, algo_id: impl Into<String>) {
-        self.registry.insert(algo_id.into(), AlgoRegistrationStatus::Active);
+        self.registry
+            .insert(algo_id.into(), AlgoRegistrationStatus::Active);
     }
 
     /// Suspend a registered algo ID.
@@ -76,10 +77,12 @@ impl AlgoIdRegistry {
             Some(AlgoRegistrationStatus::Suspended { reason }) => {
                 Err(format!("algo_id '{algo_id}' is suspended: {reason}"))
             }
-            Some(AlgoRegistrationStatus::NotRegistered) => {
-                Err(format!("algo_id '{algo_id}' is not registered with the broker"))
-            }
-            None => Err(format!("algo_id '{algo_id}' is not registered with the broker")),
+            Some(AlgoRegistrationStatus::NotRegistered) => Err(format!(
+                "algo_id '{algo_id}' is not registered with the broker"
+            )),
+            None => Err(format!(
+                "algo_id '{algo_id}' is not registered with the broker"
+            )),
         }
     }
 
@@ -111,9 +114,7 @@ mod tests {
         registry.register("algo-1");
         assert_eq!(registry.len(), 1);
         assert!(registry.is_registered_and_active("algo-1").is_ok());
-        assert!(registry
-            .is_registered_and_active("algo-unknown")
-            .is_err());
+        assert!(registry.is_registered_and_active("algo-unknown").is_err());
     }
 
     #[test]
@@ -137,8 +138,6 @@ mod tests {
         registry.register("algo-1");
         registry.unregister("algo-1");
         assert!(registry.is_empty());
-        assert!(registry
-            .is_registered_and_active("algo-1")
-            .is_err());
+        assert!(registry.is_registered_and_active("algo-1").is_err());
     }
 }

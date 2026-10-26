@@ -187,10 +187,7 @@ impl RiskEngine {
     ) -> Result<(), RiskRefusal> {
         if let Some(band) = self.price_bands.get(instrument) {
             if !band.contains(price) {
-                return Err(RiskRefusal::PriceBandViolation {
-                    price,
-                    band: *band,
-                });
+                return Err(RiskRefusal::PriceBandViolation { price, band: *band });
             }
         }
         Ok(())
@@ -218,17 +215,12 @@ impl RiskEngine {
 
     /// Check if an algo ID is registered and active.
     pub fn is_algo_registered(&self, algo_id: &str) -> bool {
-        self.algo_registry
-            .is_registered_and_active(algo_id)
-            .is_ok()
+        self.algo_registry.is_registered_and_active(algo_id).is_ok()
     }
 
     /// Record a trade fill to update OTR and trackers.
     pub fn record_fill(&mut self, fill: &FillReport) {
-        let tracker = self
-            .algo_trackers
-            .entry(fill.algo_id.clone())
-            .or_default();
+        let tracker = self.algo_trackers.entry(fill.algo_id.clone()).or_default();
         tracker.record_fill(fill.timestamp);
 
         let scrip_tracker = self
@@ -356,7 +348,11 @@ impl RiskEngine {
                 }
                 Ok(())
             }
-            Decision::CancelOrder { instrument, algo_id, .. } => {
+            Decision::CancelOrder {
+                instrument,
+                algo_id,
+                ..
+            } => {
                 if let Some(id) = algo_id {
                     self.record_cancellation(id, now);
                 }
@@ -364,7 +360,11 @@ impl RiskEngine {
                 let _ = instrument;
                 Ok(())
             }
-            Decision::ModifyOrder { instrument, algo_id, .. } => {
+            Decision::ModifyOrder {
+                instrument,
+                algo_id,
+                ..
+            } => {
                 // Modifications are recorded as order operations
                 let _ = instrument;
                 self.record_cancellation(&algo_id, now);
@@ -426,7 +426,9 @@ impl RiskEngine {
         let start_time = std::time::Instant::now();
 
         // Propagate W3C distributed trace context
-        let traceparent = trace_context.map(|t| t.to_traceparent()).unwrap_or_default();
+        let traceparent = trace_context
+            .map(|t| t.to_traceparent())
+            .unwrap_or_default();
         let trace_id_hex = trace_context
             .map(|t| format!("{:032x}", u128::from_be_bytes(t.trace_id)))
             .unwrap_or_default();
@@ -513,12 +515,11 @@ impl RiskEngine {
         if let Some(AlgoState::Halted { reason, halted_at }) = self.algo_states.get(algo_id) {
             // Auto-resume if cooldown period has expired
             if self.otr_config.halt_cooldown_ms > 0 {
-                let cooldown = chrono::Duration::milliseconds(self.otr_config.halt_cooldown_ms as i64);
+                let cooldown =
+                    chrono::Duration::milliseconds(self.otr_config.halt_cooldown_ms as i64);
                 if now >= *halted_at + cooldown {
                     self.resume_algo(algo_id);
-                    tracing::info!(
-                        "Auto-resumed algo '{algo_id}' after OTR cooldown period"
-                    );
+                    tracing::info!("Auto-resumed algo '{algo_id}' after OTR cooldown period");
                 } else {
                     let r = RiskRefusal::AlgoHalted {
                         algo_id: algo_id.to_string(),
@@ -548,10 +549,7 @@ impl RiskEngine {
         }
 
         // 3. SEBI Order-to-Trade Ratio Check
-        let tracker = self
-            .algo_trackers
-            .entry(algo_id.to_string())
-            .or_default();
+        let tracker = self.algo_trackers.entry(algo_id.to_string()).or_default();
 
         // Record this order placement before checking OTR
         tracker.record_order_placement(now);
@@ -569,9 +567,7 @@ impl RiskEngine {
             // Automatically trip circuit breaker for this algo
             self.halt_algo(
                 algo_id,
-                format!(
-                    "Automatic circuit breaker: 1-min OTR breached (ratio: {window_otr})"
-                ),
+                format!("Automatic circuit breaker: 1-min OTR breached (ratio: {window_otr})"),
                 now,
             );
             let r = RiskRefusal::OtrBreached {
@@ -592,10 +588,7 @@ impl RiskEngine {
         }
 
         // 3.5 Per-Scrip OTR Circuit Breaker (SEBI scrip-level OTR limits)
-        let scrip_tracker = self
-            .scrip_trackers
-            .entry(instrument.clone())
-            .or_default();
+        let scrip_tracker = self.scrip_trackers.entry(instrument.clone()).or_default();
 
         // Record this order placement before checking scrip OTR
         scrip_tracker.record_order_placement(now);
@@ -685,7 +678,10 @@ impl RiskEngine {
             if self.daily_loss >= max_loss {
                 // Trip global emergency kill-switch per SEBI requirements
                 self.halt_global(
-                    format!("Daily loss limit breached: {} INR >= {} INR limit", self.daily_loss, max_loss),
+                    format!(
+                        "Daily loss limit breached: {} INR >= {} INR limit",
+                        self.daily_loss, max_loss
+                    ),
                     now,
                 );
                 let r = RiskRefusal::DailyLossExceeded {
@@ -832,7 +828,8 @@ impl RiskEngine {
             Some(t) => t,
             None => {
                 // Algo not pre-registered - track it anyway
-                self.algo_trackers.insert(algo_id.to_string(), OtrTracker::new());
+                self.algo_trackers
+                    .insert(algo_id.to_string(), OtrTracker::new());
                 self.algo_trackers.get_mut(algo_id).unwrap()
             }
         };
@@ -845,9 +842,7 @@ impl RiskEngine {
         {
             self.halt_algo(
                 algo_id,
-                format!(
-                    "Automatic circuit breaker: 1-min OTR breached (ratio: {window_otr})"
-                ),
+                format!("Automatic circuit breaker: 1-min OTR breached (ratio: {window_otr})"),
                 now,
             );
             let r = RiskRefusal::OtrBreached {
@@ -959,7 +954,8 @@ impl RiskEngine {
         let scrip_tracker = match self.scrip_trackers.get_mut(instrument) {
             Some(t) => t,
             None => {
-                self.scrip_trackers.insert(instrument.clone(), OtrTracker::new());
+                self.scrip_trackers
+                    .insert(instrument.clone(), OtrTracker::new());
                 self.scrip_trackers.get_mut(instrument).unwrap()
             }
         };
@@ -1003,11 +999,7 @@ impl RiskEngine {
     /// where `num_slices` is the minimum number of child orders needed so each
     /// slice is at or below the freeze limit.
     /// Returns `Ok(1)` if no freeze limit exists or the order is within the limit.
-    pub fn suggest_freeze_slices(
-        &self,
-        instrument: &InstrumentId,
-        quantity: Quantity,
-    ) -> u32 {
+    pub fn suggest_freeze_slices(&self, instrument: &InstrumentId, quantity: Quantity) -> u32 {
         if let Some(freeze_qty) = self.limits.freeze_limits.get(instrument) {
             if quantity.0 > freeze_qty.0 {
                 // Ceiling division: ceil(quantity / freeze_qty)
@@ -1051,9 +1043,11 @@ impl RiskEngine {
         budget: &RiskBudget,
     ) -> Result<(), RiskError> {
         if let GlobalState::Halted { reason, .. } = &self.global_state {
-            return Err(RiskError::SizingRefusal(SizingRiskRefusal::PlatformHalted {
-                reason: reason.clone(),
-            }));
+            return Err(RiskError::SizingRefusal(
+                SizingRiskRefusal::PlatformHalted {
+                    reason: reason.clone(),
+                },
+            ));
         }
 
         let mut effective_budget = budget.clone();

@@ -33,11 +33,11 @@ pub struct OrderRateLimit {
 pub struct RiskLimits {
     /// Maximum notional value (in INR) permitted per single order.
     /// `None` = no notional rule; `Some` must be finite and `> 0`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "max_notional", skip_serializing_if = "Option::is_none")]
     pub max_notional_per_order: Option<Decimal>,
 
     /// Maximum quantity permitted per single order.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "max_quantity", skip_serializing_if = "Option::is_none")]
     pub max_quantity_per_order: Option<Quantity>,
 
     /// Maximum allowable daily cumulative loss (in INR).
